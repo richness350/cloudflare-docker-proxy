@@ -1,3 +1,5 @@
+import DOCS from './help.html'
+
 addEventListener("fetch", (event) => {
   event.passThroughOnException();
   event.respondWith(handleRequest(event.request));
@@ -42,6 +44,15 @@ async function handleRequest(request) {
       }
     );
   }
+  // return docs
+  if (url.pathname === "/") {
+    return new Response(DOCS, {
+      status: 200,
+      headers: {
+        "content-type": "text/html"
+      }
+    });
+  }
   const isDockerHub = upstream == dockerHub;
   const authorization = request.headers.get("Authorization");
   if (url.pathname == "/v2/") {
@@ -57,9 +68,24 @@ async function handleRequest(request) {
       redirect: "follow",
     });
     if (resp.status === 401) {
-      return responseUnauthorized(url);
+      if (MODE == "debug") {
+        headers.set(
+          "Www-Authenticate",
+          `Bearer realm="http://${url.host}/v2/auth",service="cloudflare-docker-proxy"`
+        );
+      } else {
+        headers.set(
+          "Www-Authenticate",
+          `Bearer realm="https://${url.hostname}/v2/auth",service="cloudflare-docker-proxy"`
+        );
+      }
+      return new Response(JSON.stringify({ message: "UNAUTHORIZED" }), {
+        status: 401,
+        headers: headers,
+      });
+    } else {
+      return resp;
     }
-    return resp;
   }
   // get token
   if (url.pathname == "/v2/auth") {
@@ -106,11 +132,7 @@ async function handleRequest(request) {
     headers: request.headers,
     redirect: "follow",
   });
-  const resp = await fetch(newReq);
-  if (resp.status == 401) {
-    return responseUnauthorized(url);
-  }
-  return resp;
+  return await fetch(newReq);
 }
 
 function parseAuthenticate(authenticateStr) {
@@ -135,28 +157,9 @@ async function fetchToken(wwwAuthenticate, scope, authorization) {
   if (scope) {
     url.searchParams.set("scope", scope);
   }
-  const headers = new Headers();
+  headers = new Headers();
   if (authorization) {
     headers.set("Authorization", authorization);
   }
   return await fetch(url, { method: "GET", headers: headers });
-}
-
-function responseUnauthorized(url) {
-  const headers = new(Headers);
-  if (MODE == "debug") {
-    headers.set(
-      "Www-Authenticate",
-      `Bearer realm="http://${url.host}/v2/auth",service="cloudflare-docker-proxy"`
-    );
-  } else {
-    headers.set(
-      "Www-Authenticate",
-      `Bearer realm="https://${url.hostname}/v2/auth",service="cloudflare-docker-proxy"`
-    );
-  }
-  return new Response(JSON.stringify({ message: "UNAUTHORIZED" }), {
-    status: 401,
-    headers: headers,
-  });
 }
